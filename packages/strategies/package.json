@@ -7,10 +7,15 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "example:grid": "npm run build && node dist/examples/dynamic-grid.example.js",
+    "example:twap": "npm run build && node dist/examples/twap-vwap.example.js",
+    "example:statarb": "npm run build && node dist/examples/stat-arb.example.js",
+    "example:hotreload": "npm run build && node dist/examples/hot-reload.example.js"
   },
   "dependencies": {
     "@trading-bot/core": "*",
+    "@trading-bot/risk-engine": "*",
     "chokidar": "^3.5.3"
   },
   "devDependencies": {

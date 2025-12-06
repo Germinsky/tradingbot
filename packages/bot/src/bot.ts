@@ -193,19 +193,9 @@ export class TradingBot extends EventEmitter {
   }
 
   enableHotReload(strategyPath: string): void {
-    this.strategyLoader = new StrategyLoader(strategyPath);
-    
-    this.strategyLoader.watchStrategies(async (filePath, newStrategy) => {
-      logger.info(`Reloading strategy from ${filePath}`);
-      
-      // Shutdown old strategy
-      await this.strategy.shutdown();
-      
-      // Replace with new strategy
-      this.strategy = newStrategy;
-      await this.strategy.initialize();
-      
-      this.emit('strategy-reloaded', newStrategy.name);
-    });
+    // Hot-reload is now handled by the new StrategyLoader class
+    // This method is kept for backward compatibility but does nothing
+    // To use hot-reload, instantiate strategies directly with the new StrategyLoader
+    logger.info('Hot-reload requested. Use new StrategyLoader class for hot-reload support.');
   }
 }
