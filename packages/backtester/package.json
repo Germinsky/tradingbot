@@ -7,12 +7,16 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "example:backtest": "node examples/comprehensive.example.ts"
   },
   "dependencies": {
     "@trading-bot/core": "*",
     "@trading-bot/strategies": "*",
-    "@trading-bot/risk-engine": "*"
+    "@trading-bot/risk-engine": "*",
+    "parquetjs": "^0.11.2",
+    "graphql-request": "^6.1.0",
+    "date-fns": "^3.0.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

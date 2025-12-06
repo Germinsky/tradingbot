@@ -131,7 +131,7 @@ export class RiskEngine {
     }
 
     // 2. Check exposure limits
-    const positionValue = order.price * order.quantity;
+    const positionValue = (order.price || 0) * order.quantity;
     const exposureCheck = this.exposureManager.canOpenPosition(
       strategyName,
       order.symbol,
@@ -170,7 +170,7 @@ export class RiskEngine {
 
     // 5. For perps, check liquidation buffer
     if (leverage > 1) {
-      const entryPrice = order.price;
+      const entryPrice = order.price || 0;
       const side = order.side === 'buy' ? 'long' : 'short';
       const bufferCheck = this.liquidationBuffer.canOpenPosition(
         entryPrice,
