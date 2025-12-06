@@ -6,10 +6,14 @@
  * - Encrypted wallet management (AWS KMS / Hashicorp Vault)
  * - Multiple exchange adapters
  * - Dynamic strategy loading from config
+ * - Transaction simulation (Etherscan + Blockscout)
+ * - Automatic gas price oracle (Blocknative + EigenPhi)
+ * - Alert webhooks (Slack/Discord/Telegram)
+ * - OpenTelemetry tracing with Jaeger export
  * - Prometheus metrics endpoint
  * - Health check HTTP server
  * - Graceful shutdown with position monitoring
- * - Auto-restart via PM2 or Docker
+ * - Auto-restart via PM2 or Docker + Watchtower
  */
 
 import 'dotenv/config';
@@ -23,10 +27,16 @@ import { ProductionConfigLoader, ProductionConfig } from './config-loader.js';
 import { EncryptionService } from './encryption.js';
 import { HealthCheckServer } from './health-server.js';
 import { PrometheusMetrics } from './metrics.js';
+import { TransactionSimulator } from './transaction-simulator.js';
+import { GasOracle } from './gas-oracle.js';
+import { AlertService } from './alert-service.js';
+import { TracingService } from './tracing-service.js';
 
 // Global state for cleanup
 let bots: TradingBot[] = [];
 let healthServer: HealthCheckServer | null = null;
+let gasOracles: Map<number, GasOracle> = new Map();
+let tracingService: TracingService | null = null;
 let isShuttingDown = false;
 
 /**
@@ -34,70 +44,133 @@ let isShuttingDown = false;
  */
 async function main() {
   try {
-    // Load production configuration
-    const configPath = process.env.CONFIG_PATH || resolve(__dirname, '../config/prod.yaml');
-    logger.info(`Loading configuration from: ${configPath}`);
-    
-    const config = ProductionConfigLoader.load(configPath);
-    logger.setLevel(config.logging?.level || 'info');
+    // Initialize tracing first
+    tracingService = new TracingService({
+      serviceName: 'trading-bot',
+      jaegerEndpoint: process.env.JAEGER_ENDPOINT,
+      enabled: process.env.ENABLE_TRACING !== 'false'
+    });
 
-    logger.info('🚀 Starting Multi-Chain Trading Bot');
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info(`Node Version: ${process.version}`);
+    await tracingService.traceAsync('bot.startup', async (span) => {
+      // Load production configuration
+      const configPath = process.env.CONFIG_PATH || resolve(__dirname, '../config/prod.yaml');
+      logger.info(`Loading configuration from: ${configPath}`);
+      
+      const config = ProductionConfigLoader.load(configPath);
+      logger.setLevel(config.logging?.level || 'info');
 
-    // Initialize encryption service
-    const encryptionService = new EncryptionService(config.encryption);
-    logger.info(`Encryption provider: ${config.encryption.provider}`);
+      logger.info('🚀 Starting Multi-Chain Trading Bot');
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`Node Version: ${process.version}`);
 
-    // Decrypt and load wallet private keys
-    const wallets: Record<string, { privateKey: string; rpcUrl: string; chainId: number }> = {};
-    for (const [chain, walletConfig] of Object.entries(config.wallets)) {
-      logger.info(`Decrypting wallet for ${chain}...`);
-      const decryptedKey = await encryptionService.decryptPrivateKey(walletConfig.privateKey);
-      wallets[chain] = {
-        privateKey: decryptedKey,
-        rpcUrl: walletConfig.rpcUrl,
-        chainId: walletConfig.chainId,
-      };
-      logger.info(`✓ Wallet loaded for ${chain} (Chain ID: ${walletConfig.chainId})`);
-    }
+      // Initialize alert service
+      const alertService = new AlertService({
+        slack: process.env.SLACK_WEBHOOK_URL ? {
+          webhookUrl: process.env.SLACK_WEBHOOK_URL,
+          channel: process.env.SLACK_CHANNEL,
+          username: 'Trading Bot'
+        } : undefined,
+        discord: process.env.DISCORD_WEBHOOK_URL ? {
+          webhookUrl: process.env.DISCORD_WEBHOOK_URL,
+          username: 'Trading Bot'
+        } : undefined,
+        telegram: process.env.TELEGRAM_BOT_TOKEN ? {
+          botToken: process.env.TELEGRAM_BOT_TOKEN,
+          chatId: process.env.TELEGRAM_CHAT_ID!
+        } : undefined,
+        enabled: process.env.ENABLE_ALERTS !== 'false'
+      });
 
-    // Initialize exchange adapters for each chain
-    const exchanges: Map<string, Exchange> = new Map();
-    const enabledExchanges = config.exchanges.filter(e => e.enabled);
-    
-    logger.info(`Initializing ${enabledExchanges.length} exchange adapters...`);
-    for (const exchangeConfig of enabledExchanges) {
-      try {
-        const wallet = wallets[exchangeConfig.chain];
-        if (!wallet) {
-          logger.warn(`No wallet configured for chain ${exchangeConfig.chain}, skipping exchange ${exchangeConfig.name}`);
-          continue;
+      // Send startup notification
+      await alertService.send({
+        level: 'info',
+        title: '🚀 Trading Bot Starting',
+        message: 'Production trading bot is initializing...',
+        fields: {
+          Environment: process.env.NODE_ENV || 'development',
+          'Node Version': process.version,
+          Timestamp: new Date().toISOString()
         }
+      });
 
-        // Create exchange adapter
-        let exchange: Exchange;
-        switch (exchangeConfig.type) {
-          case 'uniswap-v3':
-          case 'quickswap':
-            exchange = new UniswapExchange(wallet.rpcUrl, wallet.privateKey);
-            break;
-          
-          default:
-            logger.warn(`Unknown exchange type: ${exchangeConfig.type}`);
-            continue;
-        }
+      // Initialize transaction simulator
+      const txSimulator = new TransactionSimulator({
+        etherscanApiKey: process.env.ETHERSCAN_API_KEY,
+        blockscoutUrl: process.env.BLOCKSCOUT_URL
+      });
 
-        exchanges.set(exchangeConfig.name, exchange);
-        logger.info(`✓ ${exchangeConfig.name} (${exchangeConfig.chain}) initialized`);
-      } catch (error) {
-        logger.error(`Failed to initialize exchange ${exchangeConfig.name}`, error);
+      // Initialize encryption service
+      const encryptionService = new EncryptionService(config.encryption);
+      logger.info(`Encryption provider: ${config.encryption.provider}`);
+
+      // Decrypt and load wallet private keys
+      const wallets: Record<string, { privateKey: string; rpcUrl: string; chainId: number }> = {};
+      for (const [chain, walletConfig] of Object.entries(config.wallets)) {
+        logger.info(`Decrypting wallet for ${chain}...`);
+        const decryptedKey = await encryptionService.decryptPrivateKey(walletConfig.privateKey);
+        wallets[chain] = {
+          privateKey: decryptedKey,
+          rpcUrl: walletConfig.rpcUrl,
+          chainId: walletConfig.chainId,
+        };
+        logger.info(`✓ Wallet loaded for ${chain} (Chain ID: ${walletConfig.chainId})`);
+
+        // Initialize gas oracle for this chain
+        const gasOracle = new GasOracle({
+          chainId: walletConfig.chainId,
+          blocknativeApiKey: process.env.BLOCKNATIVE_API_KEY,
+          eigenphiApiKey: process.env.EIGENPHI_API_KEY
+        });
+        gasOracle.start();
+        gasOracles.set(walletConfig.chainId, gasOracle);
+        logger.info(`✓ Gas oracle started for chain ${walletConfig.chainId}`);
       }
-    }
 
-    if (exchanges.size === 0) {
-      throw new Error('No exchanges initialized');
-    }
+      // Initialize exchange adapters for each chain
+      const exchanges: Map<string, Exchange> = new Map();
+      const enabledExchanges = config.exchanges.filter(e => e.enabled);
+      
+      logger.info(`Initializing ${enabledExchanges.length} exchange adapters...`);
+      for (const exchangeConfig of enabledExchanges) {
+        try {
+          const wallet = wallets[exchangeConfig.chain];
+          if (!wallet) {
+            logger.warn(`No wallet configured for chain ${exchangeConfig.chain}, skipping exchange ${exchangeConfig.name}`);
+            continue;
+          }
+
+          // Create exchange adapter with enhanced features
+          let exchange: Exchange;
+          switch (exchangeConfig.type) {
+            case 'uniswap-v3':
+            case 'quickswap':
+              exchange = new UniswapExchange(wallet.rpcUrl, wallet.privateKey);
+              // Inject services into exchange
+              (exchange as any).txSimulator = txSimulator;
+              (exchange as any).gasOracle = gasOracles.get(wallet.chainId);
+              (exchange as any).alertService = alertService;
+              (exchange as any).tracingService = tracingService;
+              break;
+            
+            default:
+              logger.warn(`Unknown exchange type: ${exchangeConfig.type}`);
+              continue;
+          }
+
+          exchanges.set(exchangeConfig.name, exchange);
+          logger.info(`✓ ${exchangeConfig.name} (${exchangeConfig.chain}) initialized`);
+        } catch (error) {
+          logger.error(`Failed to initialize exchange ${exchangeConfig.name}`, error);
+          await alertService.notifyError(
+            error as Error,
+            `Exchange Initialization: ${exchangeConfig.name}`
+          );
+        }
+      }
+
+      if (exchanges.size === 0) {
+        throw new Error('No exchanges initialized');
+      }
 
     // Initialize risk manager
     const riskManager = new RiskManager({
@@ -308,6 +381,18 @@ function setupGracefulShutdown(config: ProductionConfig): void {
       if (healthServer) {
         await healthServer.stop();
         logger.info('✓ Health server stopped');
+      }
+
+      // Stop gas oracles
+      for (const [chainId, oracle] of gasOracles) {
+        oracle.stop();
+      }
+      logger.info('✓ Gas oracles stopped');
+
+      // Shutdown tracing service
+      if (tracingService) {
+        await tracingService.shutdown();
+        logger.info('✓ Tracing service stopped');
       }
 
       clearTimeout(timeoutHandle);

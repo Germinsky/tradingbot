@@ -1,0 +1,200 @@
+name: CI - Trading Bot
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Lint code
+        run: npm run lint --if-present
+      
+      - name: Type check
+        run: npm run typecheck --if-present
+      
+      - name: Build packages
+        run: npm run build
+      
+      - name: Run unit tests
+        run: npm test --if-present
+
+  backtest:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build packages
+        run: npm run build
+      
+      - name: Run backtests
+        id: backtest
+        run: |
+          cd packages/backtester
+          node dist/cli.js backtest \
+            --strategy grid \
+            --symbol ETH/USD \
+            --start-date 2024-01-01 \
+            --end-date 2024-12-31 \
+            --initial-capital 10000 \
+            --output ./backtest-results.json
+          
+          # Extract Sharpe ratio from results
+          SHARPE=$(node -e "console.log(JSON.parse(require('fs').readFileSync('./backtest-results.json')).sharpeRatio)")
+          echo "sharpe=$SHARPE" >> $GITHUB_OUTPUT
+          echo "### Backtest Results 📊" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Sharpe Ratio:** $SHARPE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          node -e "
+            const results = JSON.parse(require('fs').readFileSync('./backtest-results.json'));
+            console.log('**Total Return:** ' + (results.totalReturn * 100).toFixed(2) + '%');
+            console.log('**Max Drawdown:** ' + (results.maxDrawdown * 100).toFixed(2) + '%');
+            console.log('**Win Rate:** ' + (results.winRate * 100).toFixed(2) + '%');
+            console.log('**Total Trades:** ' + results.totalTrades);
+          " >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check Sharpe ratio threshold
+        run: |
+          SHARPE=${{ steps.backtest.outputs.sharpe }}
+          echo "Sharpe Ratio: $SHARPE"
+          
+          if (( $(echo "$SHARPE < 2.0" | bc -l) )); then
+            echo "❌ Backtest failed: Sharpe ratio $SHARPE is below threshold 2.0"
+            exit 1
+          else
+            echo "✅ Backtest passed: Sharpe ratio $SHARPE exceeds threshold 2.0"
+          fi
+      
+      - name: Upload backtest results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backtest-results
+          path: packages/backtester/backtest-results.json
+          retention-days: 30
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [test, backtest]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/trading-bot
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+      
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./packages/bot/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/trading-bot:buildcache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/trading-bot:buildcache,mode=max
+      
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "✅ Trading Bot CI/CD Success",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Trading Bot Build Successful* ✅\n\n*Commit:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n*Sharpe Ratio:* `${{ needs.backtest.outputs.sharpe }}`"
+                  }
+                }
+              ]
+            }'
+      
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": "❌ Trading Bot CI/CD Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Trading Bot Build Failed* ❌\n\n*Commit:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
+                  }
+                }
+              ]
+            }'
+
+  security:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate || true
+      
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
