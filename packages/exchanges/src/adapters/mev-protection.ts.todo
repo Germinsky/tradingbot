@@ -1,0 +1,227 @@
+import {
+  Address,
+  PublicClient,
+  WalletClient,
+  Hash,
+  TransactionRequest,
+} from 'viem';
+import { BaseAdapter } from './base-adapter';
+import {
+  Token,
+  TokenAmount,
+  Quote,
+  BuildTransactionOptions,
+  ExecuteSwapOptions,
+  MEVProtectionResult,
+} from '../types';
+import { logger } from '../utils/logger';
+
+interface FlashbotsBundle {
+  signedTransactions: Hash[];
+  targetBlockNumber: number;
+}
+
+interface FlashbotsBundleResponse {
+  bundleHash: Hash;
+}
+
+export class MEVProtectionMiddleware {
+  private readonly FLASHBOTS_RPC = 'https://relay.flashbots.net';
+  private readonly _EDEN_RPC = 'https://api.edennetwork.io/v1/rpc';
+
+  constructor(
+    private publicClient: PublicClient,
+    private walletClient: WalletClient
+  ) {}
+
+  async submitViaFlashbots(
+    tx: TransactionRequest,
+    options: {
+      maxBlockNumber?: number;
+      minTimestamp?: number;
+      maxTimestamp?: number;
+    } = {}
+  ): Promise<MEVProtectionResult> {
+    try {
+      logger.info('Submitting transaction via Flashbots Protect');
+
+      // Sign the transaction
+      const signedTx = await this.walletClient.signTransaction(tx as any);
+
+      // Get current block number
+      const blockNumber = await this.publicClient.getBlockNumber();
+      const targetBlock = options.maxBlockNumber || Number(blockNumber) + 1;
+
+      // Create bundle
+      const bundle: FlashbotsBundle = {
+        signedTransactions: [signedTx],
+        targetBlockNumber: targetBlock,
+      };
+
+      // Submit to Flashbots
+      const response = await fetch(this.FLASHBOTS_RPC, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_sendBundle',
+          params: [
+            {
+              txs: bundle.signedTransactions,
+              blockNumber: `0x${targetBlock.toString(16)}`,
+              minTimestamp: options.minTimestamp,
+              maxTimestamp: options.maxTimestamp,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Flashbots submission failed: ${response.statusText}`);
+      }
+
+      const result = await response.json() as FlashbotsBundleResponse;
+
+      logger.info(`Bundle submitted to Flashbots: ${result.bundleHash}`);
+
+      return {
+        bundleHash: result.bundleHash,
+        protected: true,
+        privateRpc: 'flashbots',
+        blockNumber: BigInt(targetBlock),
+      };
+    } catch (error) {
+      logger.error('Flashbots submission failed', error);
+      throw error;
+    }
+  }
+
+  async submitViaEdenNetwork(
+    tx: TransactionRequest
+  ): Promise<MEVProtectionResult> {
+    try {
+      logger.info('Submitting transaction via Eden Network');
+
+      // Eden Network uses a custom RPC endpoint
+      // Transactions submitted here are protected from MEV
+
+      const hash = await this.walletClient.sendTransaction({
+        ...tx,
+        // Eden-specific parameters can be added here
+      } as any);
+
+      logger.info(`Transaction submitted to Eden: ${hash}`);
+
+      return {
+        txHash: hash,
+        protected: true,
+        privateRpc: 'eden',
+      };
+    } catch (error) {
+      logger.error('Eden Network submission failed', error);
+      throw error;
+    }
+  }
+
+  async submitWithPrivateMempool(
+    tx: TransactionRequest,
+    _options: ExecuteSwapOptions
+  ): Promise<MEVProtectionResult> {
+    // Try Flashbots first, fall back to Eden
+    if (options.flashbots) {
+      try {
+        return await this.submitViaFlashbots(tx);
+      } catch (error) {
+        logger.warn('Flashbots failed, trying Eden Network');
+      }
+    }
+
+    if (options.edenNetwork) {
+      try {
+        return await this.submitViaEdenNetwork(tx);
+      } catch (error) {
+        logger.warn('Eden Network failed, using public mempool');
+      }
+    }
+
+    // Fallback to public mempool
+    const hash = await this.walletClient.sendTransaction(tx as any);
+    return {
+      txHash: hash,
+      protected: false,
+    };
+  }
+}
+
+export class FlashbotsAdapter extends BaseAdapter {
+  readonly name = 'Flashbots Protected';
+  readonly supportedChains = [1]; // Ethereum mainnet only
+
+  private mevMiddleware: MEVProtectionMiddleware;
+
+  constructor(
+    publicClient: PublicClient,
+    walletClient: WalletClient,
+    private underlyingAdapter: BaseAdapter
+  ) {
+    super(publicClient, walletClient);
+    this.mevMiddleware = new MEVProtectionMiddleware(publicClient, walletClient);
+  }
+
+  async getQuote(
+    input: TokenAmount,
+    output: Token,
+    slippage: number,
+    __options?: Partial<BuildTransactionOptions>
+  ): Promise<Quote> {
+    // Delegate to underlying adapter
+    return this.underlyingAdapter.getQuote(input, output, slippage, options);
+  }
+
+  async buildTransaction(
+    quote: Quote,
+    options: BuildTransactionOptions
+  ): Promise<TransactionRequest> {
+    // Delegate to underlying adapter
+    return this.underlyingAdapter.buildTransaction(quote, options);
+  }
+
+  async executeSwap(
+    quote: Quote,
+    _options: ExecuteSwapOptions
+  ): Promise<MEVProtectionResult> {
+    logger.info('Executing swap with MEV protection');
+
+    const tx = await this.buildTransaction(quote, {
+      slippage: 0.5,
+      deadline: Math.floor(Date.now() / 1000) + 1200,
+    });
+
+    // Apply gas settings
+    if (options.maxFeePerGas) tx.maxFeePerGas = options.maxFeePerGas;
+    if (options.maxPriorityFeePerGas) tx.maxPriorityFeePerGas = options.maxPriorityFeePerGas;
+    if (options.gasLimit) tx.gas = options.gasLimit;
+
+    // Always use private mempool for Flashbots adapter
+    return this.mevMiddleware.submitWithPrivateMempool(tx, {
+      ...options,
+      flashbots: true,
+      privateTx: true,
+    });
+  }
+
+  public async getAllowanceTarget(): Promise<Address> {
+    return this.underlyingAdapter.getAllowanceTarget();
+  }
+}
+
+export function wrapWithMEVProtection(
+  adapter: BaseAdapter,
+  publicClient: PublicClient,
+  walletClient: WalletClient
+): FlashbotsAdapter {
+  return new FlashbotsAdapter(publicClient, walletClient, adapter);
+}

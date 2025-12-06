@@ -1,0 +1,39 @@
+{
+  "name": "trading-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript trading bot monorepo with npm workspaces",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "typecheck": "turbo run typecheck",
+    "bot": "npm run --workspace=@trading-bot/bot start",
+    "ui": "npm run --workspace=@trading-bot/ui dev"
+  },
+  "keywords": [
+    "trading-bot",
+    "typescript",
+    "workspaces",
+    "monorepo"
+  ],
+  "author": "Digital Prophets",
+  "license": "MIT",
+  "devDependencies": {
+    "turbo": "^1.11.3",
+    "typescript": "^5.3.3",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "eslint": "^8.55.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.1.1"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

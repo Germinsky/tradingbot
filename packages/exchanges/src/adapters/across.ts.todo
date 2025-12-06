@@ -1,0 +1,196 @@
+import {
+  Address,
+  PublicClient,
+  WalletClient,
+  TransactionRequest,
+  parseAbi,
+  encodeFunctionData,
+} from 'viem';
+import {
+  Token,
+  TokenAmount,
+  Quote,
+  BuildTransactionOptions,
+  CrossChainSwapOptions,
+  ICrossChainAdapter,
+  RouteHop,
+} from '../types';
+import { BaseAdapter } from './base-adapter';
+import { logger } from '../utils/logger';
+
+const ACROSS_SPOKE_POOL_ABI = parseAbi([
+  'function deposit(address recipient, address originToken, uint256 amount, uint256 destinationChainId, int64 relayerFeePct, uint32 quoteTimestamp) payable',
+  'function depositV3(address depositor, address recipient, address inputToken, address outputToken, uint256 inputAmount, uint256 outputAmount, uint256 destinationChainId, address exclusiveRelayer, uint32 quoteTimestamp, uint32 fillDeadline, uint32 exclusivityDeadline, bytes message) payable',
+]);
+
+interface AcrossQuoteResponse {
+  relayFeePct: string;
+  relayFeeTotal: string;
+  lpFeePct: string;
+  timestamp: string;
+  isAmountTooLow: boolean;
+  quoteBlock: string;
+  spokePoolAddress: string;
+  expectedFillTime: string;
+}
+
+export class AcrossAdapter extends BaseAdapter implements ICrossChainAdapter {
+  readonly name = 'Across Bridge';
+  readonly supportedChains = [1, 10, 137, 42161, 8453]; // ETH, Optimism, Polygon, Arbitrum, Base
+
+  private readonly API_URL = 'https://api.across.to';
+
+  constructor(
+    publicClient: PublicClient,
+    walletClient: WalletClient,
+    private spokePoolAddress: Address
+  ) {
+    super(publicClient, walletClient);
+  }
+
+  async getQuote(
+    __input: TokenAmount, _output: Token, _slippage: number,
+    __output: Token,
+    __slippage: number,
+    __options?: Partial<BuildTransactionOptions>
+  ): Promise<Quote> {
+    throw new Error('Use getCrossChainQuote for Across bridge');
+  }
+
+  async getCrossChainQuote(
+    __input: TokenAmount, _output: Token, _slippage: number,
+    __output: Token,
+    options: CrossChainSwapOptions
+  ): Promise<Quote> {
+    try {
+      logger.debug('Getting Across bridge quote', { input, output, options });
+
+      const originChainId = input.token.chainId;
+      const params = new URLSearchParams({
+        originChainId: originChainId.toString(),
+        destinationChainId: options.destinationChainId.toString(),
+        token: input.token.address,
+        amount: input.amount.toString(),
+      });
+
+      const response = await fetch(
+        `${this.API_URL}/api/suggested-fees?${params.toString()}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Across API error: ${response.statusText}`);
+      }
+
+      const data = await response.json() as AcrossQuoteResponse;
+
+      if (data.isAmountTooLow) {
+        throw new Error('Amount too low for Across bridge');
+      }
+
+      const relayFee = BigInt(data.relayFeeTotal);
+      const outputAmount = input.amount - relayFee;
+
+      const minimumReceived = this.calculateMinimumReceived(
+        outputAmount,
+        options.slippage
+      );
+
+      const route: RouteHop = {
+        protocol: 'across-v2',
+        poolAddress: this.spokePoolAddress,
+        tokenIn: input.token,
+        tokenOut: output,
+        percentage: 100,
+      };
+
+      return {
+        inputAmount: input,
+        outputAmount: {
+          token: output,
+          amount: outputAmount,
+        },
+        minimumReceived: {
+          token: output,
+          amount: minimumReceived,
+        },
+        priceImpact: 0, // Bridge, not swap
+        feeBps: (Number(relayFee) / Number(input.amount)) * 10000,
+        gasEstimate: BigInt(150000),
+        routes: [[route]],
+        exchangeId: 'across',
+        validUntil: Math.floor(Date.now() / 1000) + 600,
+        allowanceTarget: this.spokePoolAddress,
+        data: {
+          quoteTimestamp: data.timestamp,
+          relayFeePct: data.relayFeePct,
+          destinationChainId: options.destinationChainId,
+        },
+      };
+    } catch (error) {
+      logger.error('Failed to get Across quote', error);
+      throw error;
+    }
+  }
+
+  async buildTransaction(
+    __quote: Quote,
+    options: BuildTransactionOptions
+  ): Promise<TransactionRequest> {
+    throw new Error('Use buildCrossChainTransaction for Across bridge');
+  }
+
+  async buildCrossChainTransaction(
+    __quote: Quote,
+    options: CrossChainSwapOptions
+  ): Promise<TransactionRequest> {
+    const recipient =
+      options.destinationRecipient || this.walletClient.account?.address;
+
+    if (!recipient) throw new Error('No recipient address');
+
+    const quoteTimestamp = quote.data?.quoteTimestamp || Math.floor(Date.now() / 1000);
+    const relayFeePct = quote.data?.relayFeePct || '0';
+
+    const data = encodeFunctionData({
+      abi: ACROSS_SPOKE_POOL_ABI,
+      functionName: 'deposit',
+      args: [
+        recipient,
+        quote.inputAmount.token.address,
+        quote.inputAmount.amount,
+        BigInt(options.destinationChainId),
+        BigInt(relayFeePct),
+        quoteTimestamp,
+      ],
+    });
+
+    return {
+      to: this.spokePoolAddress,
+      data,
+      value: BigInt(0),
+    };
+  }
+
+  public async getAllowanceTarget(): Promise<Address> {
+    return this.spokePoolAddress;
+  }
+}
+
+export function createAcrossAdapter(
+  publicClient: PublicClient,
+  walletClient: WalletClient,
+  chainId: number
+): AcrossAdapter {
+  const spokePools: Record<number, Address> = {
+    1: '0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5',
+    10: '0x6f26Bf09B1C792e3228e5467807a900A503c0281',
+    137: '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
+    42161: '0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A',
+    8453: '0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64',
+  };
+
+  const spokePool = spokePools[chainId];
+  if (!spokePool) throw new Error(`Across not supported on chain ${chainId}`);
+
+  return new AcrossAdapter(publicClient, walletClient, spokePool);
+}

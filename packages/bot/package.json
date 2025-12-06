@@ -1,0 +1,24 @@
+{
+  "name": "@trading-bot/bot",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trading-bot/core": "*",
+    "@trading-bot/exchanges": "*",
+    "@trading-bot/strategies": "*",
+    "@trading-bot/risk-engine": "*",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+}
