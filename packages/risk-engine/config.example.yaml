@@ -1,0 +1,73 @@
+# Risk Engine Configuration
+# This file defines all risk management parameters
+
+# Account settings
+accountBalance: 10000
+baseCurrency: USD
+
+# Kelly Criterion Position Sizing
+kelly:
+  enabled: true
+  fractionalKelly: 0.25  # Use 25% of full Kelly (conservative)
+  minWinRate: 0.4        # Require at least 40% win rate
+  maxPositionPercent: 0.1 # Cap position size at 10% of account
+
+# Value at Risk (VaR) and Conditional VaR
+var:
+  enabled: true
+  method: both           # 'historical', 'monte-carlo', or 'both'
+  confidenceLevel: 0.95  # 95% confidence
+  lookbackPeriod: 252    # Days (1 trading year)
+  monteCarloSimulations: 10000
+  updateFrequencyMs: 5000 # Update every 5 seconds
+
+# Circuit Breaker
+circuitBreaker:
+  enabled: true
+  maxDailyDrawdown: 0.15      # 15% daily drawdown stops trading
+  maxTotalDrawdown: 0.25      # 25% total drawdown from peak
+  cooldownPeriodMs: 3600000   # 1 hour cooldown
+  autoResetOnRecovery: false  # Require manual reset
+  recoveryThreshold: 0.5      # 50% recovery needed for auto-reset
+
+# Exposure Limits
+exposureLimits:
+  maxTotalExposure: 1.0        # 1x total leverage
+  maxPerStrategyExposure: 0.3  # 30% per strategy
+  maxPerTokenExposure: 0.25    # 25% per token
+  maxCorrelatedExposure: 0.5   # 50% for correlated assets
+  correlationThreshold: 0.7    # Assets with >0.7 correlation
+
+# Liquidation Buffer (for perpetual positions)
+liquidationBuffer:
+  enabled: true
+  minBufferPercent: 0.05       # 5% minimum buffer
+  targetBufferPercent: 0.2     # 20% target buffer
+  emergencyCloseThreshold: 0.02 # 2% emergency close
+  checkFrequencyMs: 5000       # Check every 5 seconds
+
+# Volatility Monitoring
+volatility:
+  enabled: true
+  method: bollinger            # 'bollinger', 'atr', or 'garch'
+  bollingerPeriod: 20
+  bollingerStdDev: 2
+  bandwidthThreshold: 0.1      # 10% bandwidth triggers de-leverage
+  atrPeriod: 14
+  atrMultiplier: 2
+  deleveragePercent: 0.5       # Reduce leverage by 50%
+  maxVolatilityLevel: 3        # Max level 3/10 before stopping
+
+# Blacklists
+blacklist:
+  tokens: []                   # Add tokens to blacklist
+  strategies: []               # Add strategy names to blacklist
+  exchanges: []                # Add exchange names to blacklist
+  autoBlacklistOnLoss: false
+  autoBlacklistThreshold: 0.5  # Auto-blacklist after 50% loss
+
+# Logging
+logging:
+  level: info
+  logVaR: true
+  logExposure: true
