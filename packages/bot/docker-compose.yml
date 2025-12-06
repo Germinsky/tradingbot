@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  trading-bot:
+    build:
+      context: ../..
+      dockerfile: packages/bot/Dockerfile
+    container_name: trading-bot-prod
+    restart: always
+    
+    # Environment variables
+    env_file:
+      - .env.production
+    
+    environment:
+      - NODE_ENV=production
+      - CONFIG_PATH=/app/config/prod.yaml
+    
+    # Port mapping
+    ports:
+      - "8080:8080" # Health check / metrics
+    
+    # Volume mounts
+    volumes:
+      - ./config:/app/config:ro
+      - trading-bot-logs:/var/log/trading-bot
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+        tag: "{{.Name}}/{{.ID}}"
+    
+    # Network
+    networks:
+      - trading-network
+    
+    # Stop grace period (for graceful shutdown)
+    stop_grace_period: 65s
+
+volumes:
+  trading-bot-logs:
+    driver: local
+
+networks:
+  trading-network:
+    driver: bridge

@@ -15,13 +15,17 @@
     "@trading-bot/exchanges": "*",
     "@trading-bot/risk-engine": "*",
     "@trading-bot/strategies": "*",
+    "@aws-sdk/client-kms": "^3.515.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "js-yaml": "^4.1.0",
+    "prom-client": "^15.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   }

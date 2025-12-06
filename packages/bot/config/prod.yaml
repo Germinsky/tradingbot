@@ -1,0 +1,189 @@
+# Production Configuration for Multi-Chain Trading Bot
+
+# Wallet Configuration (encrypted with KMS/Vault)
+wallets:
+  ethereum:
+    privateKey: ${AWS_KMS_ENCRYPTED_KEY_ETH} # Or vault:secret/data/trading-bot/eth-key
+    rpcUrl: ${ETHEREUM_RPC_URL}
+    chainId: 1
+  
+  arbitrum:
+    privateKey: ${AWS_KMS_ENCRYPTED_KEY_ARB}
+    rpcUrl: ${ARBITRUM_RPC_URL}
+    chainId: 42161
+  
+  base:
+    privateKey: ${AWS_KMS_ENCRYPTED_KEY_BASE}
+    rpcUrl: ${BASE_RPC_URL}
+    chainId: 8453
+  
+  optimism:
+    privateKey: ${AWS_KMS_ENCRYPTED_KEY_OP}
+    rpcUrl: ${OPTIMISM_RPC_URL}
+    chainId: 10
+  
+  polygon:
+    privateKey: ${AWS_KMS_ENCRYPTED_KEY_MATIC}
+    rpcUrl: ${POLYGON_RPC_URL}
+    chainId: 137
+
+# Encryption Service Configuration
+encryption:
+  provider: aws-kms # Options: aws-kms, vault, local
+  awsKms:
+    region: us-east-1
+    keyId: ${AWS_KMS_KEY_ID}
+  vault:
+    address: ${VAULT_ADDR}
+    token: ${VAULT_TOKEN}
+    namespace: trading-bot
+
+# Exchange Adapters
+exchanges:
+  - name: uniswap-v3-ethereum
+    type: uniswap-v3
+    chain: ethereum
+    enabled: true
+    contractAddress: "0xE592427A0AEce92De3Edee1F18E0157C05861564" # SwapRouter
+  
+  - name: uniswap-v3-arbitrum
+    type: uniswap-v3
+    chain: arbitrum
+    enabled: true
+    contractAddress: "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+  
+  - name: uniswap-v3-base
+    type: uniswap-v3
+    chain: base
+    enabled: true
+    contractAddress: "0x2626664c2603336E57B271c5C0b26F421741e481"
+  
+  - name: uniswap-v3-optimism
+    type: uniswap-v3
+    chain: optimism
+    enabled: true
+    contractAddress: "0xE592427A0AEce92De3Edee1F18E0157C05861564"
+  
+  - name: quickswap-polygon
+    type: quickswap
+    chain: polygon
+    enabled: true
+    contractAddress: "0xa5E0829CaCEd8fFDD4De3c43696c57F7D7A678ff"
+
+# Trading Strategies
+strategies:
+  - name: grid-strategy-eth
+    type: grid
+    enabled: true
+    chain: ethereum
+    symbol: ETH/USDC
+    params:
+      gridSize: 20
+      gridSpacing: 25 # $25 spacing
+      basePrice: 2000
+      quantity: 0.05
+      upperBound: 3000
+      lowerBound: 1500
+  
+  - name: arbitrage-cross-chain
+    type: arbitrage
+    enabled: true
+    chains:
+      - ethereum
+      - arbitrum
+      - base
+    symbol: ETH/USDC
+    params:
+      minProfitPercent: 0.5
+      maxGasCost: 50 # USD
+      checkInterval: 5000 # ms
+  
+  - name: momentum-base
+    type: momentum
+    enabled: false
+    chain: base
+    symbol: ETH/USDC
+    params:
+      period: 14
+      threshold: 0.02
+      stopLoss: 0.03
+      takeProfit: 0.06
+
+# Risk Management
+risk:
+  maxPositionSize: 5000 # USD
+  maxDrawdown: 0.15 # 15%
+  stopLossPercent: 0.03
+  takeProfitPercent: 0.06
+  maxDailyLoss: 500 # USD
+  positionSizing:
+    method: kelly # Options: fixed, kelly, risk-parity
+    accountBalance: 50000
+    riskPerTrade: 0.02
+
+# Health Check Server
+healthCheck:
+  enabled: true
+  port: 8080
+  endpoints:
+    health: /health
+    metrics: /metrics
+    readiness: /ready
+    liveness: /live
+
+# Monitoring & Metrics
+monitoring:
+  prometheus:
+    enabled: true
+    prefix: trading_bot_
+  
+  metrics:
+    - name: orders_total
+      type: counter
+      labels: [chain, strategy, side, status]
+    
+    - name: position_pnl
+      type: gauge
+      labels: [chain, symbol]
+    
+    - name: execution_latency
+      type: histogram
+      labels: [chain, exchange]
+      buckets: [10, 50, 100, 500, 1000, 5000]
+    
+    - name: gas_cost_usd
+      type: histogram
+      labels: [chain]
+      buckets: [1, 5, 10, 25, 50, 100]
+
+# Graceful Shutdown
+shutdown:
+  timeout: 60000 # 60s for position monitoring
+  closePositions: false # Keep positions open
+  cancelPendingOrders: true
+  monitorOpenPositions: true
+
+# Logging
+logging:
+  level: info # debug, info, warn, error
+  format: json
+  outputs:
+    - type: console
+    - type: file
+      path: /var/log/trading-bot/app.log
+      maxSize: 100M
+      maxFiles: 10
+    - type: cloudwatch
+      logGroup: /trading-bot/production
+      stream: ${HOSTNAME}
+
+# Auto-Restart Configuration (for PM2 or Docker)
+restart:
+  policy: always
+  maxRestarts: 10
+  minUptime: 60000 # 60s
+  watchFiles:
+    - config/prod.yaml
+  onFailure:
+    notifySlack: true
+    webhookUrl: ${SLACK_WEBHOOK_URL}
