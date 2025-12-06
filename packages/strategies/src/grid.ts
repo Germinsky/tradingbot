@@ -1,4 +1,4 @@
-import { BaseStrategy } from './base';
+import { BaseStrategy } from './base.js';
 import { MarketData, Order, logger } from '@trading-bot/core';
 
 interface GridStrategyParams {
@@ -12,9 +12,11 @@ export class GridStrategy extends BaseStrategy {
   name = 'GridStrategy';
   private gridLevels: number[] = [];
   private lastPrice: number = 0;
+  private gridParams: GridStrategyParams;
 
   constructor(params: GridStrategyParams) {
-    super(params);
+    super(params as unknown as Record<string, unknown>);
+    this.gridParams = params;
     this.initializeGrid(params);
   }
 
@@ -39,9 +41,12 @@ export class GridStrategy extends BaseStrategy {
         this.lastPrice = price;
         return {
           symbol: data.symbol,
-          side: 'sell',
+          timestamp: Date.now(),
           type: 'limit',
-          quantity: (this.params as GridStrategyParams).quantity,
+          status: 'pending',
+          id: `grid-sell-${Date.now()}`,
+          side: 'sell',
+          quantity: this.gridParams.quantity,
           price: level,
         };
       } else if (this.lastPrice > level && price <= level) {
@@ -50,9 +55,12 @@ export class GridStrategy extends BaseStrategy {
         this.lastPrice = price;
         return {
           symbol: data.symbol,
-          side: 'buy',
+          timestamp: Date.now(),
           type: 'limit',
-          quantity: (this.params as GridStrategyParams).quantity,
+          status: 'pending',
+          id: `grid-buy-${Date.now()}`,
+          side: 'buy',
+          quantity: this.gridParams.quantity,
           price: level,
         };
       }

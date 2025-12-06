@@ -1,6 +1,6 @@
 import { Order, Position, logger } from '@trading-bot/core';
-import { PositionSizer, PositionSizerConfig } from './position-sizer';
-import { DrawdownMonitor, DrawdownMonitorConfig } from './drawdown';
+import { PositionSizer, PositionSizerConfig } from './position-sizer.js';
+import { DrawdownMonitor, DrawdownMonitorConfig } from './drawdown.js';
 
 export interface RiskManagerConfig {
   positionSizer: PositionSizerConfig;

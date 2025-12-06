@@ -1,1 +1,1 @@
-{"extends":"../../tsconfig.json","compilerOptions":{"outDir":"./dist","rootDir":"./src","noUnusedLocals":false,"noUnusedParameters":false},"include":["src/**/*"],"exclude":["node_modules","dist"],"references":[{"path":"../core"},{"path":"../exchanges"}]}
+{"extends":"../../tsconfig.json","compilerOptions":{"outDir":"./dist","rootDir":"./src","noUnusedLocals":false,"noUnusedParameters":false,"jsx":"react-jsx","lib":["ES2020","DOM","DOM.Iterable"]},"include":["src/**/*"],"exclude":["node_modules","dist"],"references":[{"path":"../core"},{"path":"../exchanges"}]}

@@ -1,3 +1,3 @@
-export * from './base';
-export * from './loader';
-export * from './grid';
+export * from './base.js';
+export * from './loader.js';
+export * from './grid.js';

@@ -7,7 +7,7 @@ import {
   keccak256,
   encodeAbiParameters,
 } from 'viem';
-import { BaseAdapter } from './base-adapter';
+import { BaseAdapter } from './base-adapter.js';
 import {
   Token,
   TokenAmount,
@@ -17,7 +17,7 @@ import {
   ExecuteSwapOptions,
   MEVProtectionResult,
 } from '../types';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/logger.js';
 
 interface CowSwapQuoteResponse {
   quote: {

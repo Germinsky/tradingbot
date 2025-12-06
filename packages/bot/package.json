@@ -13,11 +13,15 @@
   "dependencies": {
     "@trading-bot/core": "*",
     "@trading-bot/exchanges": "*",
-    "@trading-bot/strategies": "*",
     "@trading-bot/risk-engine": "*",
-    "dotenv": "^16.3.1"
+    "@trading-bot/strategies": "*",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^5.2.1"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^20.11.0",
     "typescript": "^5.3.3"
   }

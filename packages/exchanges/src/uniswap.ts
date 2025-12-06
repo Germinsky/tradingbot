@@ -1,6 +1,6 @@
 import { createPublicClient, http, parseAbi } from 'viem';
 import { mainnet } from 'viem/chains';
-import { BaseExchange } from './base';
+import { BaseExchange } from './base.js';
 import { MarketData, Order, Position, logger } from '@trading-bot/core';
 
 export class UniswapExchange extends BaseExchange {

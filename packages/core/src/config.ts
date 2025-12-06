@@ -1,5 +1,5 @@
 import { readFileSync } from 'fs';
-import { Config, ConfigSchema } from './types';
+import { Config, ConfigSchema } from './types.js';
 
 export class ConfigLoader {
   static loadFromFile(filePath: string): Config {

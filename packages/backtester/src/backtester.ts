@@ -1,8 +1,8 @@
 import { MarketData, Order, Position, logger } from '@trading-bot/core';
 import { Strategy } from '@trading-bot/core';
 import { RiskManager } from '@trading-bot/risk-engine';
-import { EventQueue, BacktestEvent } from './event-queue';
-import { PerformanceMetrics } from './metrics';
+import { EventQueue, BacktestEvent } from './event-queue.js';
+import { PerformanceMetrics } from './metrics.js';
 
 export interface BacktestConfig {
   initialCapital: number;

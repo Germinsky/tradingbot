@@ -3,7 +3,8 @@ import { ConfigLoader, logger } from '@trading-bot/core';
 import { UniswapExchange } from '@trading-bot/exchanges';
 import { GridStrategy } from '@trading-bot/strategies';
 import { RiskManager } from '@trading-bot/risk-engine';
-import { TradingBot } from './bot';
+import { TradingBot } from './bot.js';
+import { ApiServer } from './api-server.js';
 
 async function main() {
   try {
@@ -70,6 +71,11 @@ async function main() {
 
     // Start bot
     await bot.start();
+
+    // Start API server
+    const apiServer = new ApiServer(bot, 3001);
+    await apiServer.start();
+    logger.info('Trading bot and API server are running');
 
     // Optional: Enable hot-reload for strategies
     // bot.enableHotReload('./strategies');

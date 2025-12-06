@@ -47,7 +47,12 @@ export const useTradingStore = create<TradingStore>((set) => ({
     equityHistory: [{ timestamp: Date.now(), equity: 10000 }],
   },
   darkMode: true,
-  setBotState: (state) => set({ botState: state }),
+  setBotState: (state) => set({ 
+    botState: {
+      ...state,
+      equityHistory: state.equityHistory || [{ timestamp: Date.now(), equity: state.equity || 10000 }],
+    }
+  }),
   addOrder: (order) =>
     set((prev) => ({
       botState: { ...prev.botState, orders: [...prev.botState.orders, order] },

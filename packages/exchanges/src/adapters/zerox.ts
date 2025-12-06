@@ -4,7 +4,7 @@ import {
   WalletClient,
   TransactionRequest,
 } from 'viem';
-import { BaseAdapter } from './base-adapter';
+import { BaseAdapter } from './base-adapter.js';
 import {
   Token,
   TokenAmount,
@@ -12,7 +12,7 @@ import {
   BuildTransactionOptions,
   AggregatedQuote,
 } from '../types';
-import { logger } from '../utils/logger';
+import { logger } from '../utils/logger.js';
 
 interface ZeroExQuoteResponse {
   sellAmount: string;

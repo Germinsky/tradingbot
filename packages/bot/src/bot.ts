@@ -169,6 +169,29 @@ export class TradingBot extends EventEmitter {
     return this.riskManager.getDrawdownStatus();
   }
 
+  async submitManualOrder(orderParams: {
+    symbol: string;
+    side: 'buy' | 'sell';
+    quantity: number;
+    price?: number;
+    type: string;
+  }): Promise<Order> {
+    if (!this.state.running) {
+      throw new Error('Bot is not running');
+    }
+
+    const order: Omit<Order, 'id' | 'status' | 'timestamp'> = {
+      symbol: orderParams.symbol,
+      side: orderParams.side,
+      type: orderParams.type as 'market' | 'limit',
+      quantity: orderParams.quantity,
+      price: orderParams.price,
+    };
+
+    await this.executeOrder(order);
+    return this.state.orders[this.state.orders.length - 1];
+  }
+
   enableHotReload(strategyPath: string): void {
     this.strategyLoader = new StrategyLoader(strategyPath);
     

@@ -1,3 +1,3 @@
-export * from './position-sizer';
-export * from './drawdown';
-export * from './risk-manager';
+export * from './position-sizer.js';
+export * from './drawdown.js';
+export * from './risk-manager.js';

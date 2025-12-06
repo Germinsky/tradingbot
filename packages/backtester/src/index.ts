@@ -1,3 +1,3 @@
-export * from './event-queue';
-export * from './backtester';
-export * from './metrics';
+export * from './event-queue.js';
+export * from './backtester.js';
+export * from './metrics.js';
